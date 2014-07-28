@@ -1,0 +1,238 @@
+---
+title: "Assignment1"
+author: "phseven"
+date: "July 11, 2014"
+output: html_document
+---
+Input: activity.csv file (assumed to be in same directory as this R script)
+
+## Load and preprocess the data.
+
+1. Load the data into a datatable ad.
+2. Change the dt column class to IDate from character.
+3. Set (dt, intv) as key to the datatable.
+
+```{r, echo=TRUE}
+require(data.table)
+require(ggplot2)
+
+# Read activity.csv into a datatable ad with fread. 
+
+ad <- fread("activity.csv")
+
+# Set data table column names.
+
+setnames(ad, c("step", "dt", "intv"))
+
+# Change dt class from character to IDate
+
+ad[, dt := as.IDate(dt, format="%Y-%m-%d")]
+
+# Set date and interval as key to the datatable.
+
+setkey(ad, dt, intv)
+```
+
+## Calculate total number of steps taken per day.
+
+1. Make a histogram of total number of steps per day.
+2. Calculate mean and median total number of steps per day.
+
+```{r, echo=TRUE}
+
+# Sad is summary datatable containing total number of step (tot.step)
+# grouped by dt.
+
+sad <- ad[, list(tot.step = sum(step, na.rm=TRUE)), by=dt]
+
+# Plot histogram.
+
+qplot(dt, tot.step, data=sad, geom="histogram", main="Steps Per Day",
+      stat="identity" , xlab="Date", ylab="Number of Steps")
+
+# Calculate mean and median total number of steps per day.
+
+mm1 <- sad[, list(Mean = mean(tot.step), Median = median(tot.step))]
+```
+
+## Total number of steps:
+- Mean = `r mm1$Mean`
+- Median = `r mm1$Median`
+
+## Average daily activity pattern
+
+
+Plot a time series of average number of steps taken in each interval.
+First, create a datatable mad with 2 columns: intv and avg.step. Intv will be
+the key and avg.step will contain no. of steps averaging over all days for
+that particular interval.
+
+```{r, echo=TRUE}
+
+# mad datatable will have two columns: intv, avg.step; intv will be the key.
+
+mad <- ad[, list(avg.step = mean(step, na.rm=TRUE)), keyby=intv]
+
+# Create the x-axis tick vector
+
+xax <- c( "12am", paste0(seq(2,10,2), "am" ), "12pm", 
+          paste0(seq(2,10,2), "pm"), "12am ")
+
+# Plot the average no. of steps at different hours of the day graph.
+# Note intv (x-value) is scaled and shifted to correspond to the x-axis
+# ticks.
+
+qplot(1+intv/200, avg.step, data=mad, geom="line", 
+      main="Average Number of Steps at Different Hours of the Day",
+      stat="identity" , xlab="Time", 
+      ylab="Average Number of Steps (averaged over 5 minute intervals)"
+      ) + 
+    xlim(xax) + 
+    geom_vline(xintercept=(1 + 835/200), linetype="longdash", color="blue")
+
+
+# Time interval with the maximum no. of steps (on average)
+
+mad[avg.step == max(avg.step), list(Max.Avg.Step.Interval = intv, 
+                                    Max.Avg.Step = avg.step)]
+
+```
+
+Make a copy of the ad (activity datatable) to fad.
+Fill the NA values of fad$step with mad$avg.step for that interval. Note, 
+however, fad$step is integer, whereas mad$avg.step is numeric, so mad$avg.step
+will be converted to integer using the as.integer function.
+
+```{r, echo=TRUE}
+
+# Make a copy of ad datatable to fad.
+
+fad <- copy(ad)
+
+# Set intv as the key for fad, so that it can be joined with mad.
+
+setkey(fad, intv)
+
+# If fad$step is NA, update it with mad$avg.step, 
+# else update with its old value.
+
+fad[mad, step := ifelse(is.na(step), as.integer(avg.step), step)]
+
+```
+
+Plot a new histogram of total number of steps per day after imputing 
+missing values. 
+
+Calculate mean and median of total number of steps per day.
+
+```{r, echo=TRUE}
+
+sfad <- fad[, list(tot.step = sum(step)), by=dt]
+
+qplot(dt, tot.step, data=sfad, geom="histogram", 
+      main="Steps Per Day (after imputing missing data)",
+      stat="identity" , xlab="Date", ylab="Number of Steps")
+       
+sfad[, list(Mean = mean(tot.step), Median = median(tot.step))]
+
+```
+
+Plot a graph of total number of steps per day conditioning on weekday vs
+weekends. 
+
+Create a new column wdy in fad datatable which will contain a factor
+with two possible values - Weekday or Weekend.
+
+Calculate mean and median of total number of steps per day.
+
+```{r, echo=TRUE}
+
+# Function wday() returns 1 = Sun, 2=Mon...7=Sat.
+# Create new column wdy in fad datatable.
+
+fad[, wdy := factor(ifelse(wday(dt) %in% c(1, 7), 0L, 1L),
+                    levels= c(0L, 1L),
+                    labels= c("Weekend", "Weekday"), ordered=TRUE)]
+
+# Create a new summary table wsfad based on fad grouped by wdy and intv.
+
+wsfad <- fad[, list(avg.step = mean(step)), by = list(intv, wdy)]
+
+qplot(intv, avg.step, 
+      data=wsfad, geom="line", 
+      main="Average Number of Steps vs Interval",
+      stat="identity", xlab="Interval", 
+      ylab="Average Number of Steps (averaged over 5 minute intervals)"
+      ) + facet_wrap(~ wdy, nrow=2) + geom_line(colour="blue")
+       
+sfad[, list(Mean = mean(tot.step), Median = median(tot.step))]
+
+```
+
+
+
+
+
+Function to convert interval to ITime. The unit of interval is 1/100 hr
+(so for each day, there are intervals from 0..2355, and each interval spans
+5 units).
+
+```{r, echo=TRUE}
+to.Time <- function(x) {
+    hr <- floor(x / 100)
+    min <- x %% 100
+    hm(sprintf("%02d:%02d", hr, min))
+}
+```
+
+
+Open a png device, plot 4 graphs and close the device.
+
+```{r, echo=TRUE}
+#png(file = "plot4.png", width=480 , height=480)
+
+setkey(ad, DT, TM)
+
+par(mfrow= c(2,2))
+
+# plot1
+
+ad[, plot(strptime(paste(DT, TM), format="%d/%m/%Y %T"), 
+    AP, type="l", xlab="",
+    ylab="Global Active Power (kilowatts)") ]
+
+# plot2
+
+ad[, plot(strptime(paste(DT, TM), format="%d/%m/%Y %T"), 
+    Volt, type="l", xlab="datetime",
+    ylab="Voltage") ]
+
+# plot3
+
+ad[, plot(strptime(paste(DT, TM), format="%d/%m/%Y %T"), 
+    SM1, type="n", 
+    xlab="", ylab="Energy sub metering") ]
+
+legend("topright", 
+       legend= c("Sub_metering_1", "Sub_metering_2", "Sub_metering_3"),
+       lty="solid", lwd=2, bty="n",
+       col= c("black", "red", "blue"))
+
+ad[, lines(strptime(paste(DT, TM), format="%d/%m/%Y %T"), 
+    SM1, type="l", col="black")]
+
+ad[, lines(strptime(paste(DT, TM), format="%d/%m/%Y %T"), 
+    SM2, type="l", col="red")]
+
+ad[, lines(strptime(paste(DT, TM), format="%d/%m/%Y %T"), 
+    SM3, type="l", col="blue")]
+
+# plot4
+
+axisTicks(c(0.0,0.5), log=FALSE, axp=c(0.0,0.5,5))
+ad[, plot(strptime(paste(DT, TM), format="%d/%m/%Y %T"), 
+    RP, type="l", xlab="datetime",
+    ylab="Global_reactive_power") ]
+
+#dev.off()
+```
